@@ -70,13 +70,20 @@
 
 		const loadingManager = new THREE.LoadingManager();
 		const gltfLoader = new GLTFLoader(loadingManager);
-		const loadOptional = (url) => new Promise((resolve) => gltfLoader.load(url, (gltf) => resolve(gltf.scene), undefined, () => resolve(null)));
-		loadingManager.onLoad = () => { $("loading").hidden = true; $("modal").hidden = false; };
+		const loadOptional = (url) => new Promise((resolve) => {
+			let settled = false;
+			const finish = (model) => { if (!settled) { settled = true; resolve(model); } };
+			gltfLoader.load(url, (gltf) => finish(gltf.scene), undefined, () => finish(null));
+			setTimeout(() => finish(null), 5000);
+		});
+		const finishBoot = () => { $("loading").hidden = true; $("modal").hidden = false; };
 		$("loading-copy").textContent = "Preparing the room and checking remote GLTF assets...";
 		Promise.all([loadOptional(REMOTE_ASSETS.weapon), loadOptional(REMOTE_ASSETS.zombie)]).then(([loadedWeapon, loadedZombie]) => {
 			weaponTemplate = loadedWeapon; zombieTemplate = loadedZombie;
 			if (weaponTemplate) { camera.remove(weapon); weapon = weaponTemplate.clone(true); weapon.position.set(.28, -.3, -.58); weapon.scale.setScalar(.55); camera.add(weapon); }
+			finishBoot();
 		});
+		setTimeout(finishBoot, 6000);
 
 		function mat(color, roughness = .8) { return new THREE.MeshStandardMaterial({ color, roughness, metalness: .05 }); }
 		function box(size, position, material, solid = true) { const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material); mesh.position.set(...position); mesh.castShadow = true; mesh.receiveShadow = true; scene.add(mesh); if (solid) colliders.push(new THREE.Box3().setFromObject(mesh)); return mesh; }
