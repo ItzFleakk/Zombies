@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Nightshift // Zombies</title>
+	<style>
+		:root { color-scheme: dark; --ink: #edf5f1; --muted: #91a6a0; --lime: #b7e36d; --red: #ff6969; --panel: rgba(8, 16, 18, .86); }
+		* { box-sizing: border-box; }
+		html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #071012; color: var(--ink); font-family: "Trebuchet MS", "Segoe UI", sans-serif; }
+		#game { position: fixed; inset: 0; }
+		canvas { display: block; width: 100%; height: 100%; }
+		#hud { position: fixed; inset: 0; pointer-events: none; padding: 24px; display: flex; justify-content: space-between; align-items: flex-end; }
+		.hud-block { display: grid; gap: 7px; min-width: 190px; text-transform: uppercase; letter-spacing: .13em; font-size: 11px; color: var(--muted); }
+		.metric { display: flex; align-items: baseline; gap: 9px; color: var(--ink); font-size: 19px; letter-spacing: .05em; }
+		.metric strong { color: var(--lime); font-size: 32px; line-height: 1; font-weight: 700; }
+		#health-bar { width: 170px; height: 5px; margin-top: 3px; background: #263337; }
+		#health-fill { height: 100%; width: 100%; background: var(--lime); transition: width .18s, background .18s; }
+		#round-panel { text-align: right; align-self: flex-start; }
+		#round-panel .metric { justify-content: flex-end; }
+		#round-panel strong { color: var(--red); }
+		#crosshair { position: fixed; left: 50%; top: 50%; width: 20px; height: 20px; transform: translate(-50%, -50%); pointer-events: none; opacity: .8; }
+		#crosshair::before, #crosshair::after { content: ""; position: absolute; background: #e9fff0; box-shadow: 0 0 8px #b7e36d; }
+		#crosshair::before { width: 2px; height: 20px; left: 9px; top: 0; } #crosshair::after { height: 2px; width: 20px; left: 0; top: 9px; }
+		#crosshair.firing { transform: translate(-50%, -50%) scale(1.55); opacity: 1; }
+		#vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 38%, rgba(0,0,0,.48) 100%); }
+		#damage { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 35%, rgba(255, 30, 30, .7)); transition: opacity .08s; }
+		#toast { position: fixed; left: 50%; top: 16%; transform: translateX(-50%); color: var(--lime); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; opacity: 0; transition: opacity .2s; pointer-events: none; }
+		#modal, #loading { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, rgba(34, 62, 52, .38), rgba(3, 8, 10, .98) 70%); z-index: 5; }
+		.panel { width: min(520px, calc(100% - 40px)); padding: 38px; border: 1px solid rgba(183,227,109,.35); background: var(--panel); box-shadow: 0 20px 70px rgba(0,0,0,.45); }
+		.eyebrow { margin: 0 0 12px; color: var(--lime); font-size: 11px; letter-spacing: .24em; text-transform: uppercase; }
+		h1 { margin: 0; font-family: Georgia, serif; font-size: clamp(42px, 8vw, 78px); line-height: .9; font-weight: 400; letter-spacing: -.04em; }
+		.panel p { color: var(--muted); line-height: 1.6; max-width: 410px; }
+		button { margin-top: 18px; border: 0; padding: 14px 20px; cursor: pointer; color: #101712; background: var(--lime); font: 700 12px "Trebuchet MS", sans-serif; letter-spacing: .16em; text-transform: uppercase; }
+		button:hover { background: #d3f59a; } button:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+		#loading { z-index: 10; } #loading .panel { border-color: rgba(237,245,241,.2); }
+		.loader-line { height: 3px; margin-top: 24px; overflow: hidden; background: #263337; } .loader-line span { display: block; height: 100%; width: 25%; background: var(--lime); animation: load 1.1s infinite ease-in-out; }
+		@keyframes load { 0% { transform: translateX(-100%); } 100% { transform: translateX(500%); } }
+		@media (max-width: 560px) { #hud { padding: 16px; } .hud-block { min-width: 145px; } .metric strong { font-size: 26px; } .panel { padding: 28px; } }
+	</style>
+	<script type="importmap">
+		{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+	</script>
+</head>
+<body>
+	<div id="game"></div>
+	<div id="hud">
+		<div class="hud-block"><span>Vital signs</span><div class="metric"><strong id="health">100</strong><span>HP</span></div><div id="health-bar"><div id="health-fill"></div></div><div class="metric"><strong id="ammo">12</strong><span>/ 84 rounds</span></div></div>
+		<div id="round-panel" class="hud-block"><span>Containment breach</span><div class="metric"><span>Round</span><strong id="round">1</strong></div><div id="zombies-left">5 hostile signatures</div><div class="metric"><span>Score</span><strong id="score">000000</strong></div></div>
+	</div>
+	<div id="crosshair"></div><div id="vignette"></div><div id="damage"></div><div id="toast"></div>
+	<div id="loading"><div class="panel"><p class="eyebrow">Nightshift // boot sequence</p><h1>Waking the dead.</h1><p id="loading-copy">Connecting to the ItzFleakk/Zombies asset vault...</p><div class="loader-line"><span></span></div></div></div>
+	<div id="modal" hidden><div class="panel"><p class="eyebrow">Nightshift // quarantine room</p><h1 id="modal-title">Hold the line.</h1><p id="modal-copy">WASD to move. Mouse to aim. Click to fire. Survive each round and keep your eyes up.</p><button id="start">Enter the room</button></div></div>
+
+	<script type="module">
+		import * as THREE from "three";
+		import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+		import { PointerLockControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/PointerLockControls.js";
+
+		const ASSET_BASE = "https://raw.githubusercontent.com/ItzFleakk/Zombies/main/assets/";
+		const REMOTE_ASSETS = { weapon: `${ASSET_BASE}weapons/pistol.glb`, zombie: `${ASSET_BASE}enemies/zombie.glb` };
+		const $ = (id) => document.getElementById(id);
+		const scene = new THREE.Scene(); scene.background = new THREE.Color(0x071012); scene.fog = new THREE.Fog(0x071012, 20, 58);
+		const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, .1, 100); camera.position.set(0, 1.7, 9);
+		const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; $("game").appendChild(renderer.domElement);
+		const controls = new PointerLockControls(camera, renderer.domElement); scene.add(controls.getObject());
+		const clock = new THREE.Clock(), raycaster = new THREE.Raycaster(), keys = new Set(), zombies = [], colliders = [];
+		const state = { health: 100, ammo: 12, reserve: 84, score: 0, round: 1, spawned: 0, alive: 0, active: false, gameOver: false, lastShot: 0, nextWave: 0 };
+		let weapon, weaponTemplate, zombieTemplate;
+
+		const loadingManager = new THREE.LoadingManager();
+		const gltfLoader = new GLTFLoader(loadingManager);
+		const loadOptional = (url) => new Promise((resolve) => gltfLoader.load(url, (gltf) => resolve(gltf.scene), undefined, () => resolve(null)));
+		loadingManager.onLoad = () => { $("loading").hidden = true; $("modal").hidden = false; };
+		$("loading-copy").textContent = "Preparing the room and checking remote GLTF assets...";
+		Promise.all([loadOptional(REMOTE_ASSETS.weapon), loadOptional(REMOTE_ASSETS.zombie)]).then(([loadedWeapon, loadedZombie]) => {
+			weaponTemplate = loadedWeapon; zombieTemplate = loadedZombie;
+			if (weaponTemplate) { camera.remove(weapon); weapon = weaponTemplate.clone(true); weapon.position.set(.28, -.3, -.58); weapon.scale.setScalar(.55); camera.add(weapon); }
+		});
+
+		function mat(color, roughness = .8) { return new THREE.MeshStandardMaterial({ color, roughness, metalness: .05 }); }
+		function box(size, position, material, solid = true) { const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material); mesh.position.set(...position); mesh.castShadow = true; mesh.receiveShadow = true; scene.add(mesh); if (solid) colliders.push(new THREE.Box3().setFromObject(mesh)); return mesh; }
+		function setupRoom() {
+			box([30, .2, 30], [0, -.1, 0], mat(0x263235));
+			box([30, 5, .3], [0, 2.5, -15], mat(0x172326)); box([30, 5, .3], [0, 2.5, 15], mat(0x172326)); box([.3, 5, 30], [-15, 2.5, 0], mat(0x172326)); box([.3, 5, 30], [15, 2.5, 0], mat(0x172326));
+			for (let i = 0; i < 10; i++) box([1.4, .8, 1.4], [((i * 7) % 20) - 10, .4, ((i * 11) % 18) - 9], mat(i % 2 ? 0x56634c : 0x6c5944));
+			const ceiling = box([28, .1, 28], [0, 5, 0], mat(0x10191a), false); ceiling.receiveShadow = true;
+			const ambient = new THREE.HemisphereLight(0xc6e2d6, 0x162126, 1.3); scene.add(ambient);
+			const lamp = new THREE.PointLight(0xd8ffbc, 16, 24); lamp.position.set(0, 4.2, 0); lamp.castShadow = true; scene.add(lamp);
+			const red = new THREE.PointLight(0xff3344, 7, 13); red.position.set(-12, 3, -12); scene.add(red);
+		}
+		function createWeapon() { const group = new THREE.Group(); group.position.set(.28, -.3, -.58); group.rotation.set(-.06, -.08, -.03); const body = new THREE.Mesh(new THREE.BoxGeometry(.22, .18, .72), mat(0x20282a, .35)); body.position.z = -.2; body.castShadow = true; group.add(body); const grip = new THREE.Mesh(new THREE.BoxGeometry(.13, .36, .16), mat(0x171b1d)); grip.position.set(0, -.22, .04); grip.rotation.x = -.2; group.add(grip); const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(.07, .07, .25, 12), mat(0x111415)); muzzle.rotation.x = Math.PI / 2; muzzle.position.z = -.64; group.add(muzzle); camera.add(group); return group; }
+		function createZombie() { const group = new THREE.Group(); const skin = mat(0x6f8f70), dark = mat(0x17201d), eye = new THREE.MeshBasicMaterial({ color: 0xff4c38 }); const body = new THREE.Mesh(new THREE.CapsuleGeometry(.48, 1.05, 5, 10), skin); body.position.y = 1.05; body.castShadow = true; group.add(body); const head = new THREE.Mesh(new THREE.SphereGeometry(.43, 12, 8), skin); head.position.y = 2; head.castShadow = true; group.add(head); for (const x of [-.16, .16]) { const e = new THREE.Mesh(new THREE.SphereGeometry(.06, 8, 8), eye); e.position.set(x, 2.08, -.39); group.add(e); } const arm = new THREE.Mesh(new THREE.BoxGeometry(.18, .85, .18), dark); arm.position.set(.58, 1.1, -.05); arm.rotation.z = -.45; group.add(arm); group.userData.hitTarget = group; return group; }
+		function spawnZombie() { const object = zombieTemplate ? zombieTemplate.clone(true) : createZombie(); object.position.set((Math.random() > .5 ? 1 : -1) * (10 + Math.random() * 3), 0, (Math.random() * 20) - 10); object.userData.hitTarget = object; object.userData.health = 100; object.userData.speed = .75 + state.round * .1; scene.add(object); zombies.push(object); state.alive++; }
+		function startWave() { state.spawned = 0; const count = 4 + state.round * 2; const spawn = () => { if (state.spawned < count && state.active) { spawnZombie(); state.spawned++; setTimeout(spawn, 550); } }; spawn(); toast(`Round ${state.round} // ${count} signatures`); }
+		function updateHud() { $("health").textContent = Math.max(0, Math.ceil(state.health)); $("ammo").textContent = state.ammo; $("round").textContent = state.round; $("score").textContent = String(state.score).padStart(6, "0"); $("zombies-left").textContent = `${state.alive} hostile signature${state.alive === 1 ? "" : "s"}`; $("health-fill").style.width = `${Math.max(0, state.health)}%`; $("health-fill").style.background = state.health < 35 ? "var(--red)" : "var(--lime)"; }
+		let toastTimer; function toast(text) { $("toast").textContent = text; $("toast").style.opacity = 1; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").style.opacity = 0, 1800); }
+		function damagePlayer(amount) { state.health -= amount; $("damage").style.opacity = .75; setTimeout(() => $("damage").style.opacity = 0, 130); if (state.health <= 0) endGame(); updateHud(); }
+		function zombieFromHit(object) { let current = object; while (current) { if (current.userData.hitTarget) return current.userData.hitTarget; current = current.parent; } return null; }
+		function shoot() { if (!state.active || state.gameOver || performance.now() - state.lastShot < 180) return; state.lastShot = performance.now(); if (!state.ammo) { toast("Reload required // press R"); return; } state.ammo--; $("crosshair").classList.add("firing"); setTimeout(() => $("crosshair").classList.remove("firing"), 70); raycaster.setFromCamera(new THREE.Vector2(0, 0), camera); const hits = raycaster.intersectObjects(zombies, true); if (hits.length) { const target = zombieFromHit(hits[0].object); if (target) { target.userData.health -= 50; if (target.userData.health <= 0) { scene.remove(target); const index = zombies.indexOf(target); if (index >= 0) zombies.splice(index, 1); state.alive--; state.score += 100; if (!state.alive && state.spawned >= 4 + state.round * 2) { state.round++; state.nextWave = 2.5; } } } } updateHud(); }
+		function reload() { if (state.ammo < 12 && state.reserve) { const amount = Math.min(12 - state.ammo, state.reserve); state.ammo += amount; state.reserve -= amount; updateHud(); toast("Magazine seated"); } }
+		function endGame() { state.active = false; state.gameOver = true; controls.unlock(); $("modal-title").textContent = "Room overrun."; $("modal-copy").textContent = `You reached round ${state.round} with a score of ${state.score}. The room is waiting.`; $("start").textContent = "Try again"; $("modal").hidden = false; }
+		function resetGame() { for (const zombie of zombies) scene.remove(zombie); zombies.length = 0; Object.assign(state, { health: 100, ammo: 12, reserve: 84, score: 0, round: 1, spawned: 0, alive: 0, active: true, gameOver: false, nextWave: 0 }); updateHud(); startWave(); }
+		function move(delta) { if (!state.active) return; const speed = 5.2; const forward = Number(keys.has("KeyW")) - Number(keys.has("KeyS")); const side = Number(keys.has("KeyD")) - Number(keys.has("KeyA")); if (forward) controls.moveForward(forward * speed * delta); if (side) controls.moveRight(side * speed * delta); const p = controls.getObject().position; p.x = THREE.MathUtils.clamp(p.x, -13.4, 13.4); p.z = THREE.MathUtils.clamp(p.z, -13.4, 13.4); p.y = 1.7; }
+		function updateZombies(delta) { for (const zombie of zombies) { const p = controls.getObject().position; const distance = zombie.position.distanceTo(p); zombie.lookAt(p.x, 1.1, p.z); if (distance > 1.45) zombie.translateZ(delta * zombie.userData.speed); else if (Math.random() < delta * .7) damagePlayer(5 + state.round); } if (!state.alive && state.nextWave > 0) { state.nextWave -= delta; if (state.nextWave <= 0) startWave(); } updateHud(); }
+		function animate() { requestAnimationFrame(animate); const delta = Math.min(clock.getDelta(), .05); move(delta); updateZombies(delta); renderer.render(scene, camera); }
+		$("start").addEventListener("click", () => { $("modal").hidden = true; controls.lock(); resetGame(); }); renderer.domElement.addEventListener("click", () => { if (!controls.isLocked && !state.gameOver) controls.lock(); }); document.addEventListener("mousedown", (event) => { if (event.button === 0) shoot(); }); document.addEventListener("keydown", (event) => { keys.add(event.code); if (event.code === "KeyR") reload(); }); document.addEventListener("keyup", (event) => keys.delete(event.code)); window.addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+		setupRoom(); weapon = createWeapon(); updateHud(); animate();
+	</script>
+</body>
+</html>
